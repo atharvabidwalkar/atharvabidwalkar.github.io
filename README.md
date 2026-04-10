@@ -1,165 +1,114 @@
-# atharvabidwalkar.github.io
+# Weather Time Series Analytics
 
-# nyc-flight-routes
-Interactive 3D globe dashboard mapping every flight route out of NYC airports (JFK, EWR, LGA) — colored by airline market share competition. Built with real BTS T-100 data (568K+ segment records, 2025).
+End-to-end time series analysis pipeline built in Python. I pull real historical and forecast weather data from the Open-Meteo API for any city in the world, then work through the full analytics workflow: exploratory analysis, time series decomposition, stationarity testing, anomaly detection, and forecasting. Everything runs in a single notebook with no manual data downloads required.
 
-# ✈️ NYC Flight Routes Intelligence
-
-**Interactive 3D globe dashboard mapping every flight route out of New York City's three major airports — JFK, EWR, and LGA — colored by airline market share competition.**
+The example outputs shown here are for Seattle, Washington, covering five years of hourly observations (43,824 records).
 
 ---
 
-## What This Shows
+## What the notebook does
 
-I mapped **350 routes** out of NYC's three airports for 2025 and colored them by competition level based on airline market share:
+**Part 1: Data ingestion**
 
-- 🟢 **Contested** — No single airline holds more than 50% of flights. Travelers have real choices.
-- 🟡 **Partial** — One airline controls 50–70%. Competition exists but is limited.
-- 🔴 **Monopoly** — One airline controls 70%+ of flights. Expect higher fares and fewer schedule options.
+I use the Open-Meteo geocoding API to convert any city name into coordinates and a timezone. The archive API then pulls five years of hourly historical data, which I cache to disk so repeat runs do not re-download it. A separate forecast API call retrieves the most recent week of observations plus a 16-day forward forecast. The two sources are joined to form a seamless, gap-free series.
 
-**Key finding:** Routes with healthy competition see **6x more daily departures** on average than monopoly routes. The hub-and-spoke model means United dominates EWR (67% share), Delta dominates JFK (38%), and LGA is split between Delta (44%) and American (31%). Many routes that appear as monopolies from one airport are actually competitive when you combine all three NYC airports — a pattern I call the **"hub split effect."**
+The four variables collected at each hourly timestamp are: temperature (C), relative humidity (%), mean sea-level pressure (hPa), and wind speed at 10m (km/h).
 
----
+**Part 2: Exploratory data analysis**
 
-## Data Source
+I examine the shape, completeness, and statistical properties of the dataset. This includes histograms and box plots for each variable to surface outliers, and a correlation heatmap to quantify the relationships between them. For Seattle, temperature and humidity show a moderate negative correlation, which is the expected inverse pattern.
 
-Built with **real government data** — not estimates or samples:
+**Part 3: Time series decomposition**
 
-- **BTS T-100 Segment Data** — 568,925 segment records from the Bureau of Transportation Statistics (Form 41), covering every flight operated by every carrier at JFK, EWR, and LGA for all 12 months of 2025
-- **BTS Average Fare Data** — Average domestic itinerary fares by origin airport (2024)
-- Cross-validated against OAG schedule data
+I separate the temperature signal into three components using a rolling window approach: a long-run trend, a seasonal cycle, and a residual. Plotting each component independently makes it possible to see whether warming or cooling patterns are present in the trend, how strong the annual seasonal swing is, and how much unexplained noise remains in the residual.
 
-Every number in this dashboard — departures, arrivals, airline flight counts, passenger volumes, seasonal patterns — comes directly from mandatory government filings by airlines.
+**Part 4: Stationarity check**
 
----
+I apply the Augmented Dickey-Fuller test to confirm whether the series is stationary, and plot the autocorrelation function on both the original series and its first difference. This step is included because stationarity assumptions affect which forecasting and decomposition methods are valid. I subsample the series for the ACF plot to keep the computation fast on large datasets.
 
-## Features
+**Part 5: Anomaly detection**
 
-### 🌍 Interactive Globe
-- **Mapbox GL JS** with globe projection — zoom from space down to airport terminal level
-- Great circle route arcs colored by competition level
-- Click any destination to focus, hover for quick stats
+I use Isolation Forest, an unsupervised algorithm, to flag unusual observations without needing labelled training data. Isolation Forest works by building many random trees and scoring each observation by how quickly it gets isolated: genuine anomalies get isolated in very few splits, giving them a short average path length and a high anomaly score. I apply this across all four weather variables simultaneously. For Seattle, 439 observations were flagged out of 43,824, a rate of approximately 1%.
 
-### 📊 Dynamic Filtering
-- **Airport selector** — ALL / JFK / EWR / LGA with instant re-filtering
-- **Monthly data** — Real per-month BTS data for all 12 months. Toggle months to see seasonal variation
-- **Airline filter** — Toggle Delta, United, JetBlue, American individually
-- **Route type** — All / Domestic / International
-- **Competition filter** — Click the legend to show/hide contested, partial, or monopoly routes
-- **Route search** — Search by city name or airport code with dropdown autocomplete
+**Part 6: Forecasting**
 
-### 📋 Rich Tooltips
-Click any airport dot to see:
-- Daily arrivals and departures (filtered by selected months)
-- Full airline breakdown with flight counts and branded colors
-- Domestic/International classification
+I build a linear regression model with sinusoidal features to capture the daily and annual temperature cycles. Specifically, I encode the hour of day and day of year as sine and cosine pairs, which allows the model to learn cyclical patterns directly rather than treating time as a monotonically increasing integer.
 
-### 💡 Smart Insights Engine
-The right panel generates contextual analysis based on your current filters:
+The model is evaluated on a held-out test set and then used to generate a 48-hour forward forecast. I compare this forecast head-to-head against the corresponding window from Open-Meteo's own professional forecast, which serves as an honest external benchmark.
 
-**When you search a destination (e.g., Nice):**
-```
-Routes to Nice (NCE):
-JFK→NCE: Delta 99% — monopoly (JFK is Delta hub)
-EWR→NCE: United 85% — monopoly (EWR is United hub)
+**Part 7: Summary dashboard**
 
-Combined NYC view: Delta 49%, United 43% — overall contested
-⚠ Individual routes show as monopoly but combined NYC service
-  is competitive due to hub splits
-
-📅 Peak: Jun (+22%) · Low: Jan (−35%)
-👥 0.43M passengers/yr · avg 198 per flight
-```
-
-**Hub dominance analysis:**
-```
-EWR: United 67% (United hub)
-JFK: Delta 38% (Delta hub)
-LGA: Delta 44% / American 31% (shared hub)
-
-⚠ 47 routes appear as monopoly from one airport but are actually
-  competitive when combining all NYC airports (hub split effect)
-```
-
-### ✏️ Editable Data Table
-Click **TABLE** to open a full data editor. Modify any departure or arrival number and click Save — the globe, insights, and all analytics update instantly.
+The final cell produces a multi-panel figure tying the key results together: the five-year temperature record with weekly trend overlay, a temperature versus humidity scatter plot, the average daily temperature cycle, a model performance bar chart, and a printed summary of the key statistics.
 
 ---
 
-## Competition Classification
+## Results (Seattle, Washington)
 
-Unlike the typical approach of counting airlines, this dashboard defines competition by **market share** — a more meaningful measure of actual competitive pressure:
-
-| Level | Definition | NYC Routes | What It Means |
-|-------|-----------|-----------|---------------|
-| 🟢 Contested | Top carrier < 50% share | 49 | Real competition — multiple strong carriers |
-| 🟡 Partial | Top carrier 50–70% share | 117 | One dominant carrier but alternatives exist |
-| 🔴 Monopoly | Top carrier > 70% share | 184 | Single carrier controls the route |
-
----
-
-## Hub Split Effect
-
-A unique insight from this dashboard: **many NYC routes that appear as monopolies from a single airport are actually competitive when viewed across all three airports.**
-
-Example — NYC to Boston:
-- **LGA→BOS:** Republic 83% → Monopoly
-- **JFK→BOS:** JetBlue 44% → Contested  
-- **EWR→BOS:** United 50% → Partial
-
-Each airport tells a different story, but NYC travelers choosing between all three have genuine competition.
+| Metric | Value |
+|---|---|
+| Observations | 43,824 hourly records |
+| Span | 1,825 days |
+| Mean temperature | 11.5 C (+/- 6.4 C) |
+| Mean humidity | 77% |
+| Mean pressure | 1,017 hPa |
+| Anomalies flagged | 439 (approx. 1%) |
+| Test MAE | 2.40 C |
+| Test RMSE | 3.01 C |
+| Forecast horizon | 384 hours |
 
 ---
 
-## Tech Stack
+## Dashboard
 
-| Component | Technology |
-|-----------|-----------|
-| Globe & Map | Mapbox GL JS v3.9 (globe projection) |
-| Data | BTS T-100 Segment (568K records, 2025) |
-| Processing | Python (openpyxl, csv, json) |
-| Frontend | Vanilla HTML/CSS/JS — single file, no build step |
-| Deployment | GitHub Pages |
-
-The entire dashboard is a **single HTML file** (~225KB) with the processed route data embedded as JSON. No backend, no API calls (other than Mapbox tiles), no framework dependencies.
+![Complete Analysis Dashboard](07_dashboard.png)
 
 ---
 
-## Data Processing Pipeline
+## How to run it
+
+Clone the repository and install the dependencies listed below. Open `Weather_Analysis.ipynb` in Jupyter and run all cells. The notebook will prompt you for a city name at the data ingestion step. On the first run for a given city, the archive download takes roughly 30 to 60 seconds. All subsequent runs for the same city use the local cache and complete almost instantly.
+
+To change the city, clear the cache file or set a different city name at the top of Part 1.
+
+---
+
+## Dependencies
 
 ```
-BTS T-100 Segment CSV (568,925 rows)
-        ↓
-Airport Data XLSX (origin, dest, month, carrier)
-        ↓
-Join on row index → filter NYC origins → aggregate by route/month/carrier
-        ↓
-Calculate market share → classify competition → compute daily averages
-        ↓
-Generate coordinates → embed as JSON → single HTML file
+requests
+numpy
+pandas
+matplotlib
+seaborn
+scikit-learn
+statsmodels
+jupyter
+```
+
+Install with:
+
+```bash
+pip install requests numpy pandas matplotlib seaborn scikit-learn statsmodels notebook
 ```
 
 ---
 
-## Methodology
+## Project structure
 
-### Competition Classification
-For each route, I calculate the market share of the top carrier (by departure count). Routes are classified as:
-- **Contested** if no single carrier exceeds 50% of departures
-- **Partial** if the top carrier holds 50–70%
-- **Monopoly** if the top carrier holds 70%+
-
-### Monthly Data
-BTS T-100 provides monthly segment-level data. Daily averages are computed per-month (dividing by days in that month), allowing accurate seasonal filtering.
-
-### Regional Carriers
-Airlines like Republic, Endeavor, SkyWest, and GoJet operate flights branded as American Eagle, Delta Connection, or United Express. BTS T-100 data only reports the operating carrier, not the marketing carrier. These regionals are shown as-is because the data doesn't allow reliable attribution to mainline brands.
----
-
-## License
-
-MIT
+```
+Weather_Analysis.ipynb   Main notebook
+07_dashboard.png         Summary dashboard output
+README.md                This file
+```
 
 ---
 
-*Built with BTS open data. Airline competition matters — it directly impacts fares, schedule frequency, and service quality for 140M+ NYC-area travelers annually.*
+## Data source
+
+All data is fetched live from [Open-Meteo](https://open-meteo.com), a free and open-source weather API that requires no API key for historical or forecast data. The archive data lags real-time by approximately one week, which is why the forecast API is used to fill the gap between the archive cutoff and today.
+
+---
+
+## Notes
+
+The forecasting model is intentionally kept simple. A linear regression with sinusoidal features is a well-understood, interpretable baseline for cyclical time series. More complex models such as Prophet, SARIMA, or gradient-boosted trees could reduce the MAE further, but the goal here was to demonstrate the full analytics pipeline clearly, not to chase the lowest possible error.
